@@ -1,2 +1,4 @@
 # python-basic-assignment--
-python 기초 과제-KANT
+1. python 기초 과제
+2. Database 기초 과제
+3. 통계 기초 과제
