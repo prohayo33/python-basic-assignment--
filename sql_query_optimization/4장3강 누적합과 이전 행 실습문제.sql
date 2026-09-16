@@ -255,12 +255,12 @@ last_daily_summary AS (
 SELECT order_date, daily_sales, running_total, prev_day_sales,
 (daily_sales - prev_day_sales) AS day_over_day_diff,
 round((daily_sales-prev_day_sales) *1.0/ NULLIF(prev_day_sales,0) * 100,2) AS day_over_day_pct
-FROM  daily_sales_summary
-ORDER BY order_date)
+FROM  daily_sales_summary)
 SELECT *
 FROM last_daily_summary
 WHERE day_over_day_pct < 0
 ORDER BY order_date;
+
 
 
 

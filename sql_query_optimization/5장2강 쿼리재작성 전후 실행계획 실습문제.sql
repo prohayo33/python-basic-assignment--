@@ -297,6 +297,70 @@ orders.order_date 인덱스를 추가하여 동일한 JOIN 쿼리를 다시 측�
 
 -- [코드 작성란]
 
+-- 기존 idx_orders_order_date 인덱스가 있다면 삭제하세요.
+DROP INDEX IF EXISTS idx_orders_order_date;
+
+
+--SQL
+EXPLAIN ANALYZE
+SELECT o.order_id, o.order_date, c.customer_id, c.city  
+FROM orders o JOIN customers c ON c.customer_id = o.customer_id 
+WHERE o.order_date >= DATE '2023-12-01' AND 
+o.order_date < DATE '2024-01-01'
+ORDER BY o.order_date DESC;
+
+-- create index문
+CREATE INDEX idx_orders_order_date ON orders(order_date);
+
+EXPLAIN ANALYZE
+SELECT o.order_id, o.order_date, c.customer_id, c.city  
+FROM orders o JOIN customers c ON c.customer_id = o.customer_id 
+WHERE o.order_date >= DATE '2023-12-01' AND 
+o.order_date < DATE '2024-01-01'
+ORDER BY o.order_date DESC;
+
+--9. 개선 후 동일한 항목을 기록하세요.
+/* customers 스캔 방식, customer 테이블 해시로 만드는 과정
+  hash join, join 조건, sort 방식 actual rows*/ 
+
+-- 10. Join 노드가 개선 전후에 어떻게 달라졌는지 확인하세요.
+/*    
+  - Join 방식이 변경되었는지: 변경 안 됨
+  - Join 입력 행 수가 달라졌는지: join 노드의 rows값은 3172-> 6344로 달라졌지만, 개선 전에는 loops=2의 병렬 실행이었기 때문에 총 결과 행 수는 6344로 동일하다. 
+  - Join 노드의 cost 또는 actual time이 달라졌는지: Join 노드의 cost 상한은 6064.82 → 3632.39로 감소했다.  하지만 Join 노드 자체의 actual time은 3.053..8.764 → 5.704..9.478로 감소하지 않았다.
+*/
+
+-- 비교표 작성
+/*
+    항목                  개선 전                               개선 후
+   ---------------------------------------------------------------------------------------
+   orders 스캔 방식    | Parallel Seq Scan           | Bitmap Heap Scan  + bitmap index scan
+   customers 스캔 방식 |  Seq Scan                   | Seq Scan
+   Join 방식          |  Hash Join                  | Hash Join
+   JOIN 조건          | customer_id                 |  customer_id
+   Sort 여부          |  order_date DESC로 quicksort | order_date DESC로 quicksort
+   Join 노드 변화      |   cost 상한 값, actual time(10번 답변)     |  cost 상한 값, actual time(10번 답변)
+   total cost        |        7979.89              |  4035.01
+   actual rows       |          6344               |   6344
+   Execution Time    |    29.874ms                  |  10.572ms
+   실행시간 감소율       |    19.302ms                 |   19.302ms   
+ 
+ */
+
+
+/*
+    Q1. 인덱스 추가 후에도 Sort가 남을 수 있나요?
+    -> 인덱스 추가 후에도 Sort가 남을 수 있다. 인덱스의 컬럼과 정렬 조건, 인덱스 사용 여부 등에 따라 별도의 sort가 필요할 수 있다.
+    Q2. 인덱스를 추가했는데 옵티마이저가 Seq Scan을 계속 선택한다면 어떤 의미인가요?
+    -> 인덱스를 활용하는 것보다 Seq Scan을 하는게 cost가 더 적다고 옵티마이저가 판단했다. (데이터가 적거나, 조건에 해당하는 행이  너무 많은 경우)
+    Q3. Join 방식이 변경되었다고 해서 반드시 성능이 개선되었다고 말할 수 있나요?
+    -> 반드시 개선되었다고 말할 수 없다. 실제 성능은 실행 시간, 처리한 행 수, 등 여러 요소를 함께 확인해야 한다.
+    Q4. 이번 결과만으로 모든 날짜 JOIN 조회에 order_date 인덱스가 항상 효과적이라고 결론 내릴 수 있나요?
+    -> 결론 내릴 수 없다.
+ */
+
+-- drop 하기
+DROP INDEX IF EXISTS idx_orders_order_date;
 
 
 /*

@@ -211,7 +211,7 @@ Scan → Join → Sort 흐름을 직접 확인하는 것이 핵심입니다.
    - customers.customer_id
    - customers.city
 4. 결과를 order_date DESC로 정렬하세요.
-5. EXPLAIN ANALYZE를 적용하세요.
+5. EXPLAIN ANALYZE를 적용하세요.  
 6. 실행계획에서 다음 항목을 확인하세요.
    - orders Scan 방식
    - customers Scan 방식
@@ -238,8 +238,56 @@ Scan → Join → Sort 흐름을 직접 확인하는 것이 핵심입니다.
 
 -- [코드 작성란]
 
+-- 전체SQL
+EXPLAIN ANALYZE 
+SELECT o.order_id, o.order_date, c.customer_id , c.city 
+FROM orders o JOIN customers c ON c.customer_id = o.customer_id
+WHERE order_date BETWEEN '2023-01-01' AND '2023-12-31'
+ORDER BY order_date DESC;
 
 
+
+--EXPLAIN ANALYZE 결과
+/*
+   - orders Scan 방식: Seq Scan
+   - customers Scan 방식: Seq Scan
+   - Join 방식: Hash join, customer_id기준으로 join
+   - Sort: order_date기준 desc , (external merge)
+   - estimated rows: 76505
+   - actual rows: 75023
+   - Execution Time: 42.222ms
+ */
+
+-- 실행 흐름
+/*
+ 먼저 customers 테이블 전체를 읽고 그 다음 customers 행들로 해시 테이블을 만든다. 
+ 이후 orders 테이블 전체를 스캔하면서 order_date 필터를 적용한다. 여기서 224977행이 FILTER에서 걸러지고
+ filter를 통과한 75023행을 customers 해시 테이블과 매칭시켜 조인하고 
+ 조인결과를 order_date 기준 내림차순으로 정렬하는데, 데이터가 work_mem보다 크니까 정렬 과정 중에 disk를 임시로 사용한다.(external merge)
+ */
+
+--가장 먼저 확인할 병목 후보
+/*
+ 가장 먼저 확인할 병목 후보: Sort 노드
+ Sort는 자식 노드(Hash Join) 대비 추가 비용이 약 17.275ms로 전체 노드 중 가장 크고
+ 처리 행수도 hash join, seq scan(orders)노드들과 함께 75023으로 크다.
+ Rows Removed by filter가 많은 노드는 seq scan(orders)지만 actual time 시간을 확인해 보면 병목이라 보기 어렵다. 
+ 따라서 최종 추가 비용 발생 여부, 처리 행수를 고려했을 때 sort 노드를 가장 먼저 확인해야 할 병목 후보로 보는것이 적절하다.
+ */
+
+-- Q1 ~ Q4 답변
+/*
+   Q1. Scan 노드에서는 무엇을 확인해야 하나요?
+   -> Scan 방식이 Seq scan인지 Index scan인지 확인해야 한다
+   Q2. Join 노드에서는 무엇을 확인해야 하나요?
+   -> db가 어떤 join 방식 hash join인지, nestedd join인지, merge join인지를 확인하고 join 조건도 확인해야 한다. 
+   Q3. Sort 노드에서는 무엇을 확인해야 하나요?
+   ->  무엇을 기준으로 정렬했는지와 어떤 방식으로 정렬했는지를 확인해야 한다.
+   Q4. Seq Scan이 나타났다고 해서 무조건 잘못된 실행계획이라고 할 수 있나요?
+   -> 무조건 잘못된 실행계획이라고 할 수 없다. index scan보다 seq scan이 빠를 수 있다. 
+   ex) 테이블이 작거나, 조회해야 하는 행이 전체 행의 상당 부분이라면 seq scan이 효율적이다.
+   
+ */
 
 /*
 ============================================================
